@@ -10,12 +10,8 @@ import tensorflow as tf
 from tensorflow.contrib import rnn
 import matplotlib.pyplot as plt
 
-dir_name = os.path.abspath(os.path.dirname(__file__))
-libs_path = os.path.join(dir_name, 'libs')
-sys.path.insert(0, libs_path)
-
-from dataGenerator import DataGenerator
-from batchGenerator import BatchGenerator
+from libs.dataGenerator import DataGenerator
+from libs.batchGenerator import BatchGenerator
 
 # Parameters
 DATA_TIMESTEP = int(1e6)
