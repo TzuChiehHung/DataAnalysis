@@ -1,7 +1,8 @@
 import csv
 import pandas as pd
 
-class MeteorolData():
+class MetData():
+
 
     def __init__(self, filename = 'data/TainanMeteorolData.csv'):
         self.filename = filename
@@ -18,12 +19,12 @@ class MeteorolData():
         self.train = None
         self.val = None
 
-    def get_training_data(self, col_names='speedAvg'):
+    def get_training_data(self, col_names=['speedAvg']):
         if self.train is None:
             self.split()
         return self.train[col_names].values
 
-    def get_val_data(self, col_names='speedAvg'):
+    def get_val_data(self, col_names=['speedAvg']):
         if self.val is None:
             self.split()
         return self.val[col_names].values
@@ -54,11 +55,3 @@ class MeteorolData():
 
         return data
 
-    # def toIOSet(self, iTimeStep, oTimeStep=1):
-    #     timeSeries = self.windSpeed.tolist()
-    #     timeSeries = range(1, 20) # testing data
-    #     self.inputSet = []
-    #     self.outputSet = []
-    #     for i in range(len(timeSeries)-iTimeStep-oTimeStep+1):
-    #         self.inputSet.append(timeSeries[i:i+iTimeStep])
-    #         self.outputSet.append(timeSeries[i+iTimeStep:i+iTimeStep+oTimeStep])
