@@ -1,4 +1,3 @@
-# %%
 import os.path
 import sys
 from matplotlib import dates as mdates
@@ -8,88 +7,109 @@ register_matplotlib_converters()
 import torch
 from torch.utils.data import DataLoader
 import numpy as np
+from time import time
 
 from libs.met_data import MetData
 from libs.seq_dataset import SeqDataset
 from libs.models import SimpleRNN
 
-# %% hyper-parameters
+# hyper-parameters
+EPOCHS = 1
 TIME_STEP = 90      # rnn time step
 INPUT_SIZE = 1      # rnn input size
 HIDDEN_SIZE = 32    # rnn hidden size
 LR = 0.02           # learning rate
 
-# %% data pre-processing
+# data pre-processing
 met = MetData()
 
-# %% prepare dataset
+# load dataset
 met.split()
-train = met.get_training_data()
-val = met.get_val_data()
+train_data = met.get_training_data(['speedAvg'])
+val_data = met.get_val_data()
 
-train_dataset = SeqDataset(train, time_step=TIME_STEP)
-val_dataset = SeqDataset(val, time_step=TIME_STEP)
+train_dataset = SeqDataset(train_data, time_step=TIME_STEP)
+val_dataset = SeqDataset(val_data, time_step=TIME_STEP)
 
-train_dataloader = DataLoader(train_dataset, batch_size=1, shuffle=False, num_workers=1)
-val_dataloader = DataLoader(val_dataset, batch_size=1, shuffle=False, num_workers=1)
+train_dataloader = DataLoader(train_dataset, batch_size=1, shuffle=True, num_workers=1)
+val_dataloader = DataLoader(val_dataset, batch_size=1, shuffle=True, num_workers=1)
 
 # plotting
-plt.figure(1)
-date = met.val.index.tolist()
-speed = met.val.speedAvg.tolist()
-plt.plot_date(date, speed, '-')
-# set ticks every week
-plt.gca().xaxis.set_major_locator(mdates.YearLocator())
-plt.gca().xaxis.set_minor_locator(mdates.MonthLocator())
+# plt.figure()
+# date = met.val.index.tolist()
+# speed = met.val.speedAvg.tolist()
+# plt.plot_date(date, speed, '-')
+# # set ticks every month
+# plt.gca().xaxis.set_major_locator(mdates.YearLocator())
+# plt.gca().xaxis.set_minor_locator(mdates.MonthLocator())
 
-# %% define model
+# model
 model = SimpleRNN(input_size=INPUT_SIZE, hidden_size=HIDDEN_SIZE)
 print(model)
 
-# %% train
+# optimizer
 optimizer = torch.optim.Adam(model.parameters(), lr=LR)   # optimize all rnn parameters
-loss_func = torch.nn.MSELoss()
+criterion = torch.nn.MSELoss()
 
-plt.figure(2, figsize=(12, 5))
-plt.ion()           # continuously plot
+# validation
+def validation(model, val_dataloader):
+    val_loss = 0
+    for x, y in val_dataloader:
+        with torch.no_grad():
+            x = x.type(torch.FloatTensor)
+            y = y.type(torch.FloatTensor)
+            h_state = None
 
-for x, y in train_dataloader:
-    x = x.type(torch.FloatTensor)
-    y = y.type(torch.FloatTensor)
-    h_state = None                          # initial hidden state
-    y_hat, h_state = model(x, h_state)      # rnn model output
-    # !! next step is important !!
-    # h_state = h_state.data                # repack the hidden state, break the connection from last iteration
+        y_hat, h_state = model(x, h_state)   # rnn model output
+        val_loss += criterion(y_hat, y)
+    val_loss /= len(val_dataloader)
+    return val_loss
 
-    loss = loss_func(y_hat, y)              # calculate loss
-    optimizer.zero_grad()                   # clear gradients for this training step
-    loss.backward()                         # backpropagation, compute gradients
-    optimizer.step()                        # apply gradients
+# training
+for epoch in range(EPOCHS):
+    tic = time()
+    for i, (x, y) in enumerate(train_dataloader):
+        x = x.type(torch.FloatTensor)
+        y = y.type(torch.FloatTensor)
+        h_state = None                          # initial hidden state
+        y_hat, h_state = model(x, h_state)      # rnn model output
+        # !! next step is important !!
+        # h_state = h_state.data                # repack the hidden state, break the connection from last iteration
 
-    # plotting
-    plt.clf()
-    plt.plot(y.data.numpy().flatten(), 'r-')
-    plt.plot(y_hat.data.numpy().flatten(), 'b-')
-    plt.draw()
-    plt.pause(0.01)
+        train_loss = criterion(y_hat, y)        # calculate loss
+        optimizer.zero_grad()                   # clear gradients for this training step
+        train_loss.backward()                   # backpropagation, compute gradients
+        optimizer.step()                        # apply gradients
 
-# %% validation TODO
-plt.figure(3)
-for x, y in val_dataloader:
-    x = x.type(torch.FloatTensor)
-    y = y.type(torch.FloatTensor)
-    h_state = None
-    y_hat, h_state = model(x, h_state)   # rnn model output
+    val_loss = validation(model, val_dataloader)
+    print('Epoch {:02d}: training_loss={:>8.5f}, val_loss={:>8.5f}, time={:>7.4f}s'
+        .format(epoch, train_loss, val_loss, time() - tic))
 
-    # plotting
-    plt.clf()
-    plt.plot(y.data.numpy().flatten(), 'r-')
-    plt.plot(y_hat.data.numpy().flatten(), 'b-')
-    plt.plot(np.abs(y.data.numpy().flatten()-y_hat.data.numpy().flatten()), 'g-')
-    plt.draw()
-    plt.pause(0.01)
+# testing
+h_state = None
+# short-term preidction
+Y=[]
+for i in range(val_data.shape[0]-1):
+    with torch.no_grad():
+        x = torch.from_numpy(train_data[i][np.newaxis, :, np.newaxis]).type(torch.FloatTensor)
+        y_hat, h_state = model(x, h_state)
+        Y.append(y_hat.item())
 
-plt.ioff()
+y = val_data[1:].flatten()
+y_hat = np.array(Y)
+error = y-y_hat
+
+print('\nShort-term prediction:')
+print(' MAE = {:.6f}'.format(np.abs(error).mean()))
+print('RMSE = {:.6f}'.format(np.sqrt(np.square(error).mean())))
+
+# plt.figure()
+_, ax = plt.subplots()
+ax.plot(y, 'r-', label='historical data')
+ax.plot(y_hat,'b-', label='predict value')
+ax.plot(np.abs(error), 'g-', label='error')
+ax.tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)
+ax.legend()
 plt.show()
 
 # if __name__ == '__main__':
