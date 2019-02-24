@@ -13,7 +13,7 @@ class MetData():
                               'sunRate', 'solarIrr']
 
         self.data = self.data_preproc()
-        print('Column names in dataframe: {:s}'.format(str(self.data.columns.tolist())))
+        print('Column names in dataframe: {:s}\n'.format(str(self.data.columns.tolist())))
 
         self.split_date = '2007-01-01'
         self.train = None

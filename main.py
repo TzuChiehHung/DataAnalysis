@@ -1,5 +1,3 @@
-import os.path
-import sys
 from argparse import ArgumentParser
 from matplotlib import dates as mdates
 from matplotlib import pyplot as plt
@@ -9,6 +7,8 @@ import torch
 from torch.utils.data import DataLoader
 import numpy as np
 from time import time
+import csv
+from tensorboardX import SummaryWriter
 
 from libs.met_data import MetData
 from libs.seq_dataset import SeqDataset
@@ -20,8 +20,12 @@ def loss_func(prediction, targets):
     return criterion(prediction, targets)
 
 def train(model, train_dataloader, val_dataloader, args):
+    log_file = open(args.save_dir + '/log.csv', 'w')
+    log_writer = csv.DictWriter(log_file, fieldnames=['epoch', 'training_loss', 'val_loss'])
+    log_writer.writeheader()
+    summary_writer = SummaryWriter(args.save_dir)
+
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)   # optimize all rnn parameters
-    # criterion = torch.nn.MSELoss()
 
     for epoch in range(args.epochs):
         tic = time()
@@ -32,16 +36,23 @@ def train(model, train_dataloader, val_dataloader, args):
             y_hat, h_state = model(x, h_state)      # rnn model output
             # !! next step is important !!
             # h_state = h_state.data                # repack the hidden state, break the connection from last iteration
-
             train_loss = loss_func(y_hat, y)        # calculate loss
+            summary_writer.add_scalar('loss/train', train_loss.item(), epoch*len(train_dataloader)+i)
+
             optimizer.zero_grad()                   # clear gradients for this training step
             train_loss.backward()                   # backpropagation, compute gradients
             optimizer.step()                        # apply gradients
-            # break
+            if i>20:
+                break
 
         val_loss = validation(model, val_dataloader)
+        summary_writer.add_scalar('loss/val', val_loss.item(), epoch*len(train_dataloader)+i)
+        log_writer.writerow(dict(epoch=epoch, training_loss=train_loss.item(), val_loss=val_loss.item()))
         print('Epoch {:02d}: training_loss={:>8.5f}, val_loss={:>8.5f}, time={:>7.4f}s'
             .format(epoch, train_loss, val_loss, time() - tic))
+
+        torch.save(model.state_dict(), args.save_dir + '/epoch_{:02d}.pt'.format(epoch))
+    log_file.close()
 
 def validation(model, val_dataloader):
     val_loss = 0
@@ -114,6 +125,8 @@ if __name__ == '__main__':
     parser.add_argument('--train', action='store_true', help='Train the model on training dataset.')
     parser.add_argument('--test', action='store_true', help='Test the trained model on testing dataset.')
 
+    parser.add_argument('--save_dir', default='./result')
+    parser.add_argument('--weights', default=None, help='The path of the saved weights.')
     parser.add_argument('--epochs', default=1, type=int)
     parser.add_argument('--time_step', default=90, type=int)
     parser.add_argument('--hidden_size', default=32, type=int)
@@ -148,7 +161,12 @@ if __name__ == '__main__':
     if args.train or args.test:
         model = SimpleRNN(input_size=train_data.shape[1], hidden_size=args.hidden_size)
         model.eval()
-        print('\n' + str(model) + '\n')
+        print(model)
+        if args.weights:
+            model.load_state_dict(torch.load(args.weights))
+            print('Load weights: {:s}\n'.format(args.weights))
+        else:
+            print('No weights are provided. Using random initialized weights.\n')
 
     if args.train:
         train(model, train_dataloader, val_dataloader, args)
